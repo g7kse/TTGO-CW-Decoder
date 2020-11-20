@@ -3,11 +3,11 @@
 
 TFT_eSPI tft = TFT_eSPI();
 
-const int colums = 20; /// have to be 16 or 20
+/*const int colums = 20; /// have to be 16 or 20
 const int rows = 4;  /// have to be 2 or 4
 int lcdindex = 0;
 int line1[colums];
-int line2[colums];
+int line2[colums];*/
 
 #define LCD_TUNING_CHAR '>'
 #define SPLASH1 "OZ1JHM CW Decoder"
