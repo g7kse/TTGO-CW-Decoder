@@ -376,7 +376,6 @@ void updateinfolinelcd(){
     tft.setCursor(40,30);
     tft.print(" WPM ");
     tft.drawLine(0, 35, 250, 35, TFT_BLUE);
-  //}
   
   // tuning aid
  
