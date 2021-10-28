@@ -1,79 +1,54 @@
+/*
+ Morse Code Decoder using an OLED and basic microphone
+
+ The MIT License (MIT) Copyright (c) 2017 by David Bird. Tweaked slightly by g7kse to suit a TTGO display
+ Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files 
+ (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, 
+ publish, distribute, but not to use it commercially for profit making or to sub-license and/or to sell copies of the Software or to 
+ permit persons to whom the Software is furnished to do so, subject to the following conditions:  
+   The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. 
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES 
+   OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE 
+   LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN 
+   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. 
+ See more at http://dsbird.org.uk 
+ 
+ CW Decoder by Hjalmar Skovholm Hansen OZ1JHM  VER 1.01
+ Feel free to change, copy or what ever you like but respect
+ that license is http://www.gnu.org/copyleft/gpl.html
+ Read more here http://en.wikipedia.org/wiki/Goertzel_algorithm 
+ Adapted for the ESP32/ESP8266 by G6EJD  
+*/
 
 #include <TFT_eSPI.h>
 
 TFT_eSPI tft = TFT_eSPI();
 
-/*const int colums = 20; /// have to be 16 or 20
-const int rows = 4;  /// have to be 2 or 4
-int lcdindex = 0;
-int line1[colums];
-int line2[colums];*/
+float magnitude           = 0;;
+int   magnitudelimit      = 100;
+int   magnitudelimit_low  = 100;
+int   realstate           = LOW;
+int   realstatebefore     = LOW;
+int   filteredstate       = LOW;
+int   filteredstatebefore = LOW;
 
-#define LCD_TUNING_CHAR '>'
-#define SPLASH1 "OZ1JHM CW Decoder"
-#define SPLASH2 "G7KSE rev 0.1"
-#define DEFAULT_N 48.0
-#define DEFAULT_BW 186
-#define CONFIG_DELAY 200
-#define SPLASH_DELAY 1000
-#define MAGNITUDE_CHANGE 5
-
-////////////////////////////////
-// Define 8 specials letters  //
-////////////////////////////////
-
-byte U_umlaut[8] =   {B01010,B00000,B10001,B10001,B10001,B10001,B01110,B00000}; // 'Ü'  
-byte O_umlaut[8] =   {B01010,B00000,B01110,B10001,B10001,B10001,B01110,B00000}; // 'Ö'  
-byte A_umlaut[8] =   {B01010,B00000,B01110,B10001,B11111,B10001,B10001,B00000}; // 'Ä'    
-byte AE_capital[8] = {B01111,B10100,B10100,B11110,B10100,B10100,B10111,B00000}; // 'Æ' 
-byte OE_capital[8] = {B00001,B01110,B10011,B10101,B11001,B01110,B10000,B00000}; // 'Ø' 
-byte fullblock[8] =  {B11111,B11111,B11111,B11111,B11111,B11111,B11111,B11111};  
-byte AA_capital[8] = {B00100,B00000,B01110,B10001,B11111,B10001,B10001,B00000}; // 'Å'   
-byte emptyblock[8] = {B00000,B00000,B00000,B00000,B00000,B00000,B00000,B00000};  
-
-int audioInPin = 2;
-
-float magnitude ;
-int magnitudelimit = 100;
-int magnitudelimit_low = 20;  // was 100. Works with TS-590 ACC2 output set to 9
-int realstate = LOW;
-int realstatebefore = LOW;
-int filteredstate = LOW;
-int filteredstatebefore = LOW;
-
-//////////////////////////////////////////////////////////
-// The sampling frq will be 8928 on a 16 mhz             //
-// without any prescaler etc                             //
-// because we need the tone in the center of the bins    //
-// you can set the tone to 496, 558, 744 or 992          //
-// then n the number of samples which give the bandwidth //
-// can be (8928 / tone) * 1 or 2 or 3 or 4 etc           //
-// init is 8928/558 = 16 *4 = 64 samples                 //
-// try to take n = 96 or 128 ;o)                         //
-// 48 will give you a bandwidth around 186 hz            //
-// 64 will give you a bandwidth around 140 hz            //
-// 96 will give you a bandwidth around 94 hz             //
-// 128 will give you a bandwidth around 70 hz            //
-// BUT remember that high n take a lot of time           //
-// so you have to find the compromice - i use 48         //
-///////////////////////////////////////////////////////////
+// The sampling frequency is 45000 on an 80MHz CPU 
+// you can set the tuning tone to 496, 558, 744 or 992
+// 'n' the number of samples determines bandwidth
 
 float coeff;
 float Q1 = 0;
 float Q2 = 0;
 float sine;
-float cosine;  
-float sampling_freq=8928.0;
-float n = DEFAULT_N;
-int testData[128]; // leave this at 128 no matter what N is chosen
-float target_freq=558.0;
+float cosine;
+float sampling_freq = 45000;
+float target_freq   = 558.0; // adjust for your needs see above
+int   n = 128;               // if you change here please change next line also
+int   testData[128];
+float bw;
 
-//////////////////////////////
-// Noise Blanker time which //
-// shall be computed so     //
-// this is initial          //
-//////////////////////////////
-int nbtime = 6;  /// ms noise blanker         
+// Noise Blanker time which shall be computed so this is initial 
+int nbtime = 6;  /// ms noise blanker
 
 long starttimehigh;
 long highduration;
@@ -83,305 +58,212 @@ long lowtimesavg;
 long startttimelow;
 long lowduration;
 long laststarttime = 0;
-
-char code[20];
-int stop = LOW;
-int wpm;
+#define num_chars 14
+char CodeBuffer[num_chars];
+char DisplayLine[num_chars+1];
+int  stop = LOW;
+int  wpm;
 
 void setup() {
 
   tft.begin();
-  tft.setRotation(1); //Landscape
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setFreeFont(&FreeSans12pt7b);
-  tft.setCursor(0,30);
-  tft.print(SPLASH1);
-  tft.setFreeFont(&FreeSans9pt7b);
-  tft.setCursor(60,80);
-  tft.print(SPLASH2);
-  delay(5000);
-  tft.fillScreen(TFT_BLACK);
-  delay(2000);
+  tft.setFreeFont(&Orbitron_Light_24);
+  tft.setRotation(1); //Landscape
   
+  //////////////////////////////////// The basic goertzel calculation //////////////////////////////////////
+  target_freq = 496.0; // tune your radio this this beat frequency
+  //   target_freq=558.0;
+  //   target_freq=744.0;
+  //   target_freq=992.0;
+  bw = sampling_freq / n;
   int  k;
   float omega;
   k = (int) (0.5 + ((n * target_freq) / sampling_freq));
   omega = (2.0 * PI * k) / n;
   sine = sin(omega);
   cosine = cos(omega);
-  coeff = 2.0 * cosine;  
-
-///////////////////////////////
-// define special characters //
-///////////////////////////////
- /*tft.createChar(0, U_umlaut); //     German
- tft.createChar(1, O_umlaut); //     German, Swedish
- tft.createChar(2, A_umlaut); //     German, Swedish 
- tft.createChar(3, AE_capital); //   Danish, Norwegian
- tft.createChar(4, OE_capital); //   Danish, Norwegian
- tft.createChar(5, fullblock);        
- tft.createChar(6, AA_capital); //   Danish, Norwegian, Swedish
- tft.createChar(7, emtyblock); 
- tft.clear(); 
-*/
- Serial.begin(115200); 
-// pinMode(ledPin, OUTPUT);
- 
-// for (int index = 0; index < colums; index++){
-//    line1[index] = 32;
-//    line2[index] = 32;
-// }           
-  
+  coeff = 2.0 * cosine;
+  Serial.begin(115200);
+  for (int i = 0; i <= num_chars; i++) DisplayLine[i] = ' ';
 }
 
-
 void loop() {
-
-  ///////////////////////////////////// 
-  // The basic where we get the tone //
-  /////////////////////////////////////
-  
-  for (char index = 0; index < n; index++)
-  {
-    testData[index] = analogRead(audioInPin);
-  }
-  for (char index = 0; index < n; index++){
+  for (char index = 0; index < n; index++) {testData[index] = analogRead(A0);}
+  for (char index = 0; index < n; index++) {
     float Q0;
     Q0 = coeff * Q1 - Q2 + (float) testData[index];
     Q2 = Q1;
-    Q1 = Q0;  
+    Q1 = Q0;
   }
-  float magnitudeSquared = (Q1*Q1)+(Q2*Q2)-Q1*Q2*coeff;  // we do only need the real part //
+  float magnitudeSquared = (Q1 * Q1) + (Q2 * Q2) - Q1 * Q2 * coeff; // we do only need the real part //
   magnitude = sqrt(magnitudeSquared);
   Q2 = 0;
   Q1 = 0;
 
-  //Serial.print(magnitude); Serial.println();  //// here you can measure magnitude for setup..
-  
-  /////////////////////////////////////////////////////////// 
-  // here we will try to set the magnitude limit automatic //
-  ///////////////////////////////////////////////////////////
-  
-  if (magnitude > magnitudelimit_low){
-    magnitudelimit = (magnitudelimit +((magnitude - magnitudelimit)/6));  /// moving average filter
-  }
- 
-  if (magnitudelimit < magnitudelimit_low)
-  magnitudelimit = magnitudelimit_low;
-  
-  ////////////////////////////////////
-  // now we check for the magnitude //
-  ////////////////////////////////////
+  if (magnitude > magnitudelimit_low) { magnitudelimit = (magnitudelimit + ((magnitude - magnitudelimit) / 6)); } /// moving average filter
+  if (magnitudelimit < magnitudelimit_low) magnitudelimit = magnitudelimit_low;
 
-  if(magnitude > magnitudelimit*0.6) // just to have some space up 
-     realstate = HIGH; 
+  // Now check the magnitude //
+  if (magnitude > magnitudelimit * 0.6) // just to have some space up
+    realstate = HIGH;
   else
-    realstate = LOW; 
-  
-  ///////////////////////////////////////////////////// 
-  // here we clean up the state with a noise blanker //
-  /////////////////////////////////////////////////////
- 
-  if (realstate != realstatebefore){
-  laststarttime = millis();
-  }
-  if ((millis()-laststarttime)> nbtime){
-  if (realstate != filteredstate){
-    filteredstate = realstate;
-  }
-  }
- 
- ////////////////////////////////////////////////////////////
- // Then we do want to have some durations on high and low //
- ////////////////////////////////////////////////////////////
- 
- if (filteredstate != filteredstatebefore){
-  if (filteredstate == HIGH){
-    starttimehigh = millis();
-    lowduration = (millis() - startttimelow);
-  }
+    realstate = LOW;
 
-  if (filteredstate == LOW){
-    startttimelow = millis();
-    highduration = (millis() - starttimehigh);
-        if (highduration < (2*hightimesavg) || hightimesavg == 0){
-      hightimesavg = (highduration+hightimesavg+hightimesavg)/3;     // now we know avg dit time ( rolling 3 avg)
-    }
-    if (highduration > (5*hightimesavg) ){
-      hightimesavg = highduration+hightimesavg;     // if speed decrease fast ..
+  // Clean up the state with a noise blanker //
+  
+  if (realstate != realstatebefore) {laststarttime = millis();}
+  if ((millis() - laststarttime) > nbtime) {
+    if (realstate != filteredstate) {
+      filteredstate = realstate;
     }
   }
+
+  if (filteredstate != filteredstatebefore) {
+    if (filteredstate == HIGH) {
+      starttimehigh = millis();
+      lowduration = (millis() - startttimelow);
+    }
+
+    if (filteredstate == LOW) {
+      startttimelow = millis();
+      highduration = (millis() - starttimehigh);
+      if (highduration < (2 * hightimesavg) || hightimesavg == 0) {
+        hightimesavg = (highduration + hightimesavg + hightimesavg) / 3; // now we know avg dit time ( rolling 3 avg)
+      }
+      if (highduration > (5 * hightimesavg) ) {
+        hightimesavg = highduration + hightimesavg;   // if speed decrease fast ..
+      }
+    }
   }
 
- ///////////////////////////////////////////////////////////////
- // now we will check which kind of baud we have - dit or dah //
- // and what kind of pause we do have 1 - 3 or 7 pause        //
- // we think that hightimeavg = 1 bit                         //
- ///////////////////////////////////////////////////////////////
- 
- if (filteredstate != filteredstatebefore){
-  stop = LOW;
-  if (filteredstate == LOW){  //// we did end a HIGH
-   if (highduration < (hightimesavg*2) && highduration > (hightimesavg*0.6)){ /// 0.6 filter out false dits
-  strcat(code,".");
-  Serial.print(".");
-   }
-   if (highduration > (hightimesavg*2) && highduration < (hightimesavg*6)){ 
-  strcat(code,"-");
-  Serial.print("-");
-  wpm = (wpm + (1200/((highduration)/3)))/2;  //// the most precise we can do ;o)
-   }
+  // Now check the baud rate based on dit or dah duration either 1, 3 or 7 pauses
+  if (filteredstate != filteredstatebefore) {
+    stop = LOW;
+    if (filteredstate == LOW) { // we did end on a HIGH
+      if (highduration < (hightimesavg * 2) && highduration > (hightimesavg * 0.6)) { /// 0.6 filter out false dits
+        strcat(CodeBuffer,".");
+        //Serial.print(".");
+      }
+      if (highduration > (hightimesavg * 2) && highduration < (hightimesavg * 6)) {
+        strcat(CodeBuffer,"-");
+        //Serial.print("-");
+        wpm = (wpm + (1200 / ((highduration) / 3))) / 2; //// the most precise we can do ;o)
+      }
+    }
+
+    if (filteredstate == HIGH) { //// we did end a LOW
+      float lacktime = 1;
+      if (wpm > 25)lacktime = 1.0; ///  when high speeds we have to have a little more pause before new letter or new word
+      if (wpm > 30)lacktime = 1.2;
+      if (wpm > 35)lacktime = 1.5;
+      if (lowduration > (hightimesavg * (2 * lacktime)) && lowduration < hightimesavg * (5 * lacktime)) { // letter space
+        CodeToChar();
+        CodeBuffer[0] = '\0';
+        //AddCharacter('/');
+        //Serial.print("/");
+      }
+      if (lowduration >= hightimesavg * (5 * lacktime)) { // word space
+        CodeToChar();
+        CodeBuffer[0] = '\0';
+        AddCharacter(' ');
+        Serial.print(" ");
+      }
+    }
   }
- 
-   if (filteredstate == HIGH){  //// we did end a LOW
-   
-   float lacktime = 1;
-   if(wpm > 25)lacktime=1.0; ///  when high speeds we have to have a little more pause before new letter or new word 
-   if(wpm > 30)lacktime=1.2;
-   if(wpm > 35)lacktime=1.5;
-   
-   if (lowduration > (hightimesavg*(2*lacktime)) && lowduration < hightimesavg*(5*lacktime)){ // letter space
-    docode();
-  code[0] = '\0';
-  Serial.print("/");
-   }
-   if (lowduration >= hightimesavg*(5*lacktime)){ // word space
-    docode();
-  code[0] = '\0';
-  printascii(32);
-  Serial.println();
-   }
+  if ((millis() - startttimelow) > (highduration * 6) && stop == LOW) {
+    CodeToChar();
+    CodeBuffer[0] = '\0';
+    stop = HIGH;
   }
- }
- 
- //////////////////////////////
- // write if no more letters //
- //////////////////////////////
+  // the end of main loop clean up//
+  realstatebefore     = realstate;
+  lasthighduration    = highduration;
+  filteredstatebefore = filteredstate;
+  tft.setCursor (186,60);
+  tft.print(wpm);
+  tft.setCursor (0,60);
+  tft.print("WPM");
+  tft.setCursor (0,30);
+  tft.print("BW");
+  tft.setCursor (120,30);
+  tft.print(target_freq);
+  tft.drawLine(0, 65, 250, 65, TFT_BLUE);
+    
+  tft.setCursor (0,110);
+  tft.print(DisplayLine);
+// tft.display();
 
-  if ((millis() - startttimelow) > (highduration * 6) && stop == LOW){
-   docode();
-   code[0] = '\0';
-   stop = HIGH;
-  }
-
-
- //////////////////////////////////
- // the end of main loop clean up//
- /////////////////////////////////
- updateinfolinelcd();
- realstatebefore = realstate;
- lasthighduration = highduration;
- filteredstatebefore = filteredstate;
- }
-
-
-////////////////////////////////
-// translate cw code to ascii //
-////////////////////////////////
-
-void docode(){
-  if (strcmp(code,".-") == 0) printascii(65);
-  if (strcmp(code,"-...") == 0) printascii(66);
-  if (strcmp(code,"-.-.") == 0) printascii(67);
-  if (strcmp(code,"-..") == 0) printascii(68);
-  if (strcmp(code,".") == 0) printascii(69);
-  if (strcmp(code,"..-.") == 0) printascii(70);
-  if (strcmp(code,"--.") == 0) printascii(71);
-  if (strcmp(code,"....") == 0) printascii(72);
-  if (strcmp(code,"..") == 0) printascii(73);
-  if (strcmp(code,".---") == 0) printascii(74);
-  if (strcmp(code,"-.-") == 0) printascii(75);
-  if (strcmp(code,".-..") == 0) printascii(76);
-  if (strcmp(code,"--") == 0) printascii(77);
-  if (strcmp(code,"-.") == 0) printascii(78);
-  if (strcmp(code,"---") == 0) printascii(79);
-  if (strcmp(code,".--.") == 0) printascii(80);
-  if (strcmp(code,"--.-") == 0) printascii(81);
-  if (strcmp(code,".-.") == 0) printascii(82);
-  if (strcmp(code,"...") == 0) printascii(83);
-  if (strcmp(code,"-") == 0) printascii(84);
-  if (strcmp(code,"..-") == 0) printascii(85);
-  if (strcmp(code,"...-") == 0) printascii(86);
-  if (strcmp(code,".--") == 0) printascii(87);
-  if (strcmp(code,"-..-") == 0) printascii(88);
-  if (strcmp(code,"-.--") == 0) printascii(89);
-  if (strcmp(code,"--..") == 0) printascii(90);
-
-  if (strcmp(code,".----") == 0) printascii(49);
-  if (strcmp(code,"..---") == 0) printascii(50);
-  if (strcmp(code,"...--") == 0) printascii(51);
-  if (strcmp(code,"....-") == 0) printascii(52);
-  if (strcmp(code,".....") == 0) printascii(53);
-  if (strcmp(code,"-....") == 0) printascii(54);
-  if (strcmp(code,"--...") == 0) printascii(55);
-  if (strcmp(code,"---..") == 0) printascii(56);
-  if (strcmp(code,"----.") == 0) printascii(57);
-  if (strcmp(code,"-----") == 0) printascii(48);
-
-  if (strcmp(code,"..--..") == 0) printascii(63);
-  if (strcmp(code,".-.-.-") == 0) printascii(46);
-  if (strcmp(code,"--..--") == 0) printascii(44);
-  if (strcmp(code,"-.-.--") == 0) printascii(33);
-  if (strcmp(code,".--.-.") == 0) printascii(64);
-  if (strcmp(code,"---...") == 0) printascii(58);
-  if (strcmp(code,"-....-") == 0) printascii(45);
-  if (strcmp(code,"-..-.") == 0) printascii(47);
-
-  if (strcmp(code,"-.--.") == 0) printascii(40);
-  if (strcmp(code,"-.--.-") == 0) printascii(41);
-  if (strcmp(code,".-...") == 0) printascii(95);
-  if (strcmp(code,"...-..-") == 0) printascii(36);
-  if (strcmp(code,"...-.-") == 0) printascii(62);
-  if (strcmp(code,".-.-.") == 0) printascii(60);
-  if (strcmp(code,"...-.") == 0) printascii(126);
-  //////////////////
-  // The specials //
-  //////////////////
-  if (strcmp(code,".-.-") == 0) printascii(3);
-  if (strcmp(code,"---.") == 0) printascii(4);
-  if (strcmp(code,".--.-") == 0) printascii(6);
-
+// tft.fillScreen(TFT_BLACK);
 }
 
-
-/////////////////////////////////////
-// print the ascii code to the lcd //
-// one a time so we can generate   //
-// special letters                 //
-/////////////////////////////////////
-void printascii(int asciinumber){
-
-
- line1[lcdindex]=asciinumber;
- tft.fillScreen(TFT_BLACK);
- tft.setCursor(0,60);
- tft.setTextColor(TFT_GREEN, TFT_BLACK);
- tft.setFreeFont(&Orbitron_Light_24);
- tft.write(asciinumber);
- lcdindex += 4;
-}
-
-void updateinfolinelcd(){
-/////////////////////////////////////
-// here we update the upper line   //
-// with the speed.                 //
-/////////////////////////////////////
-
-  unsigned mag, magSpace, magOffset;
-  char magChar;
-
-    tft.setCursor(0,30);
-    tft.print(wpm);
-    tft.setCursor(40,30);
-    tft.print(" WPM ");
-    tft.drawLine(0, 35, 250, 35, TFT_BLUE);
+void CodeToChar() { // translate cw code to ascii character//
+  char decode_char = '{';
+  if (strcmp(CodeBuffer,".-") == 0)      decode_char = char('a');
+  if (strcmp(CodeBuffer,"-...") == 0)    decode_char = char('b');
+  if (strcmp(CodeBuffer,"-.-.") == 0)    decode_char = char('c');
+  if (strcmp(CodeBuffer,"-..") == 0)     decode_char = char('d'); 
+  if (strcmp(CodeBuffer,".") == 0)       decode_char = char('e'); 
+  if (strcmp(CodeBuffer,"..-.") == 0)    decode_char = char('f'); 
+  if (strcmp(CodeBuffer,"--.") == 0)     decode_char = char('g'); 
+  if (strcmp(CodeBuffer,"....") == 0)    decode_char = char('h'); 
+  if (strcmp(CodeBuffer,"..") == 0)      decode_char = char('i');
+  if (strcmp(CodeBuffer,".---") == 0)    decode_char = char('j');
+  if (strcmp(CodeBuffer,"-.-") == 0)     decode_char = char('k'); 
+  if (strcmp(CodeBuffer,".-..") == 0)    decode_char = char('l'); 
+  if (strcmp(CodeBuffer,"--") == 0)      decode_char = char('m'); 
+  if (strcmp(CodeBuffer,"-.") == 0)      decode_char = char('n'); 
+  if (strcmp(CodeBuffer,"---") == 0)     decode_char = char('o'); 
+  if (strcmp(CodeBuffer,".--.") == 0)    decode_char = char('p'); 
+  if (strcmp(CodeBuffer,"--.-") == 0)    decode_char = char('q'); 
+  if (strcmp(CodeBuffer,".-.") == 0)     decode_char = char('r'); 
+  if (strcmp(CodeBuffer,"...") == 0)     decode_char = char('s'); 
+  if (strcmp(CodeBuffer,"-") == 0)       decode_char = char('t'); 
+  if (strcmp(CodeBuffer,"..-") == 0)     decode_char = char('u'); 
+  if (strcmp(CodeBuffer,"...-") == 0)    decode_char = char('v'); 
+  if (strcmp(CodeBuffer,".--") == 0)     decode_char = char('w'); 
+  if (strcmp(CodeBuffer,"-..-") == 0)    decode_char = char('x'); 
+  if (strcmp(CodeBuffer,"-.--") == 0)    decode_char = char('y'); 
+  if (strcmp(CodeBuffer,"--..") == 0)    decode_char = char('z'); 
   
-  // tuning aid
- 
-  tft.setCursor(100, 0); // allow for two digits followed by WPM
-  for (int i = 0; i < magSpace; i++) {
-    magChar = i < mag ? LCD_TUNING_CHAR : ' ';
-    tft.write(magChar);
+  if (strcmp(CodeBuffer,".----") == 0)   decode_char = char('1'); 
+  if (strcmp(CodeBuffer,"..---") == 0)   decode_char = char('2'); 
+  if (strcmp(CodeBuffer,"...--") == 0)   decode_char = char('3'); 
+  if (strcmp(CodeBuffer,"....-") == 0)   decode_char = char('4'); 
+  if (strcmp(CodeBuffer,".....") == 0)   decode_char = char('5'); 
+  if (strcmp(CodeBuffer,"-....") == 0)   decode_char = char('6'); 
+  if (strcmp(CodeBuffer,"--...") == 0)   decode_char = char('7'); 
+  if (strcmp(CodeBuffer,"---..") == 0)   decode_char = char('8'); 
+  if (strcmp(CodeBuffer,"----.") == 0)   decode_char = char('9'); 
+  if (strcmp(CodeBuffer,"-----") == 0)   decode_char = char('0'); 
+
+  if (strcmp(CodeBuffer,"..--..") == 0)  decode_char = char('?'); 
+  if (strcmp(CodeBuffer,".-.-.-") == 0)  decode_char = char('.'); 
+  if (strcmp(CodeBuffer,"--..--") == 0)  decode_char = char(','); 
+  if (strcmp(CodeBuffer,"-.-.--") == 0)  decode_char = char('!'); 
+  if (strcmp(CodeBuffer,".--.-.") == 0)  decode_char = char('@'); 
+  if (strcmp(CodeBuffer,"---...") == 0)  decode_char = char(':'); 
+  if (strcmp(CodeBuffer,"-....-") == 0)  decode_char = char('-'); 
+  if (strcmp(CodeBuffer,"-..-.") == 0)   decode_char = char('/'); 
+
+  if (strcmp(CodeBuffer,"-.--.") == 0)   decode_char = char('('); 
+  if (strcmp(CodeBuffer,"-.--.-") == 0)  decode_char = char(')'); 
+  if (strcmp(CodeBuffer,".-...") == 0)   decode_char = char('_'); 
+  if (strcmp(CodeBuffer,"...-..-") == 0) decode_char = char('$'); 
+  if (strcmp(CodeBuffer,"...-.-") == 0)  decode_char = char('>'); 
+  if (strcmp(CodeBuffer,".-.-.") == 0)   decode_char = char('<'); 
+  if (strcmp(CodeBuffer,"...-.") == 0)   decode_char = char('~'); 
+  if (strcmp(CodeBuffer,".-.-") == 0)    decode_char = char('a'); // a umlaut
+  if (strcmp(CodeBuffer,"---.") == 0)    decode_char = char('o'); // o accent
+  if (strcmp(CodeBuffer,".--.-") == 0)   decode_char = char('a'); // a accent
+  if (decode_char != '{') {
+    AddCharacter(decode_char);
+    Serial.print(decode_char);
   }
+}
+
+void AddCharacter(char newchar){
+  for (int i = 0; i < num_chars; i++) DisplayLine[i] = DisplayLine[i+1];
+  DisplayLine[num_chars] = newchar;
 }
