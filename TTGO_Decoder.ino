@@ -19,9 +19,7 @@
  Read more here http://en.wikipedia.org/wiki/Goertzel_algorithm 
  Adapted for the ESP32/ESP8266 by G6EJD  
 */
-
 #include <TFT_eSPI.h>
-
 TFT_eSPI tft = TFT_eSPI();
 
 float magnitude           = 0;;
@@ -65,7 +63,6 @@ int  stop = LOW;
 int  wpm;
 
 void setup() {
-
   tft.begin();
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -90,8 +87,8 @@ void setup() {
 }
 
 void loop() {
-  for (char index = 0; index < n; index++) {testData[index] = analogRead(A0);}
-  for (char index = 0; index < n; index++) {
+  for (byte index = 0; index < n; index++) {testData[index] = analogRead(A0);}
+  for (byte index = 0; index < n; index++) {
     float Q0;
     Q0 = coeff * Q1 - Q2 + (float) testData[index];
     Q2 = Q1;
