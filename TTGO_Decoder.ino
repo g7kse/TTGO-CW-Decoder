@@ -178,21 +178,24 @@ void loop() {
   realstatebefore     = realstate;
   lasthighduration    = highduration;
   filteredstatebefore = filteredstate;
-  tft.setCursor (186,60);
-  tft.print(wpm);
-  tft.setCursor (0,60);
-  tft.print("WPM");
-  tft.setCursor (0,30);
-  tft.print("BW");
-  tft.setCursor (120,30);
-  tft.print(target_freq);
-  tft.drawLine(0, 65, 250, 65, TFT_BLUE);
-    
-  tft.setCursor (0,110);
-  tft.print(DisplayLine);
-// tft.display();
-
-// tft.fillScreen(TFT_BLACK);
+  
+ //write to diplay
+  //tft.setCursor (186,60);
+  //tft.print(wpm);
+  //tft.setCursor (0,60);
+  //tft.print("WPM");
+  //tft.setCursor (0,30);
+  //tft.print("BW");
+  //tft.setCursor (120,30);
+  //tft.print(target_freq);
+  //tft.drawLine(0, 65, 250, 65, TFT_BLUE);
+  //tft.setCursor (0,110);
+  //tft.print(DisplayLine);
+  display.drawString(0, 0, "WPM = "+String(wpm));
+  display.drawString(64, 0,"BW = "+String(bw,0)+"Hz");
+  display.drawString(0, 26, DisplayLine);
+  display.display();
+  display.clear();
 }
 
 void CodeToChar() { // translate cw code to ascii character//
