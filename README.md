@@ -1,3 +1,5 @@
+# This doesn't work - I can't get my head round the display part of it- See issues
+
 # TTGO-CW-Decoder
 An attempt at getting the OZ1JHM CW decoder onto a TTGO ESP32
 
