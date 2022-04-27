@@ -1,23 +1,10 @@
 /*
- Morse Code Decoder using an OLED and basic microphone
-
- The MIT License (MIT) Copyright (c) 2017 by David Bird. Tweaked slightly by g7kse to suit a TTGO display
- Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files 
- (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, 
- publish, distribute, but not to use it commercially for profit making or to sub-license and/or to sell copies of the Software or to 
- permit persons to whom the Software is furnished to do so, subject to the following conditions:  
-   The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. 
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES 
-   OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE 
-   LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN 
-   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. 
- See more at http://dsbird.org.uk 
- 
  CW Decoder by Hjalmar Skovholm Hansen OZ1JHM  VER 1.01
  Feel free to change, copy or what ever you like but respect
  that license is http://www.gnu.org/copyleft/gpl.html
- Read more here http://en.wikipedia.org/wiki/Goertzel_algorithm 
- Adapted for the ESP32/ESP8266 by G6EJD  
+ Read more here http://en.wikipedia.org/wiki/Goertzel_algorithm
+ 
+ This is an attempt to include the MM0GYG Tuning inidcator as well as using a TTGO board
 */
 #include <TFT_eSPI.h>
 TFT_eSPI tft = TFT_eSPI();
@@ -66,7 +53,6 @@ void setup() {
   tft.begin();
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setFreeFont(&Orbitron_Light_24);
   tft.setRotation(1); //Landscape
   
   //////////////////////////////////// The basic goertzel calculation //////////////////////////////////////
@@ -179,23 +165,33 @@ void loop() {
   lasthighduration    = highduration;
   filteredstatebefore = filteredstate;
   
- //write to diplay
-  //tft.setCursor (186,60);
-  //tft.print(wpm);
-  //tft.setCursor (0,60);
-  //tft.print("WPM");
-  //tft.setCursor (0,30);
-  //tft.print("BW");
-  //tft.setCursor (120,30);
-  //tft.print(target_freq);
-  //tft.drawLine(0, 65, 250, 65, TFT_BLUE);
-  //tft.setCursor (0,110);
-  //tft.print(DisplayLine);
-  display.drawString(0, 0, "WPM = "+String(wpm));
-  display.drawString(64, 0,"BW = "+String(bw,0)+"Hz");
-  display.drawString(0, 26, DisplayLine);
-  display.display();
-  display.clear();
+//write to diplay
+  tft.setFreeFont(&Orbitron_Light_24);
+  tft.setCursor (0,30);
+  tft.print("WPM - ");
+  tft.setCursor (100,30);
+  tft.print("20");
+  tft.drawLine(0, 35, 250, 35, TFT_BLUE);
+  tft.setCursor (0,70);
+  tft.print("1234567890"); // Would use tft.print(DisplayLine); here if I could 
+  delay(1000);
+  tft.print("ABCDEFGHIJKL");
+
+
+//Tuning Indicator - Functions on LCD but not TFT
+/*
+  magOffset = place + 5; // allow for WPM chars
+  magSpace = columns - magOffset;
+  mag = magnitude/magnitudelimit_low; 
+    if (mag > magSpace) { // handle overflow
+    mag = magSpace; 
+  }
+  lcd.setCursor(magOffset, 0); // allow for two digits followed by WPM
+  for (int i = 0; i < magSpace; i++) {
+    magChar = i < mag ? LCD_TUNING_CHAR : ' ';
+    lcd.write(magChar);
+  }
+*/
 }
 
 void CodeToChar() { // translate cw code to ascii character//
